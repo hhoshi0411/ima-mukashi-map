@@ -31,17 +31,18 @@
 
   <script>
     /****************************************************
-     * ima-mukashi-map (Phase 0.5)
-     *  - URLで初期位置/ズーム指定: ?lat=..&lng=..&z=..
-     *  - 地図操作でURLを同期（共有しやすく）
-     *  - クリックでピン追加 + Popup（Google/StreetView）
+     * ima-mukashi-map（Phase 0.5）
+     * 方針：
+     *  - 入口URLは常に「/」
+     *  - 初期表示は「大崎駅・ズーム18」
+     *  - 地図操作後はURLに lat/lng/z を反映（共有用）
      ****************************************************/
 
-    /** ====== デフォルト初期表示（いまの値を踏襲） ====== */
+    /** ====== 初期デフォルト（大崎駅・Z=18） ====== */
     const DEFAULT_VIEW = {
-      lat: 35.681236,
-      lng: 139.767125,
-      z: 13
+      lat: 35.619123,
+      lng: 139.728456,
+      z: 18
     };
 
     /** URLパラメータ読み取り（数値） */
@@ -53,7 +54,7 @@
       return Number.isFinite(n) ? n : fallback;
     }
 
-    /** URLに現在の地図状態を反映（履歴を汚さない） */
+    /** URLに現在の地図状態を反映（履歴は汚さない） */
     function setUrlFromView(lat, lng, z) {
       const params = new URLSearchParams(window.location.search);
       params.set("lat", String(lat));
@@ -63,7 +64,7 @@
       history.replaceState(null, "", newUrl);
     }
 
-    /** デバウンス（地図操作のたびにURLを書き換えすぎない） */
+    /** デバウンス */
     function debounce(fn, waitMs) {
       let t = null;
       return (...args) => {
@@ -72,16 +73,17 @@
       };
     }
 
-    /** 小数点6桁で表示 */
-    function fmt(n) { return Number(n).toFixed(6); }
+    /** 小数点6桁 */
+    function fmt(n) {
+      return Number(n).toFixed(6);
+    }
 
-    /** Google マップ URL（検索） */
+    /** Google マップ URL */
     function googleMapsUrl(lat, lng) {
-      // ひろの現行と同じ形式（検索クエリ）でOK
       return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
     }
 
-    /** Google ストリートビュー URL（その地点のパノラマ） */
+    /** Google ストリートビュー URL */
     function streetViewUrl(lat, lng) {
       return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
     }
@@ -91,60 +93,68 @@
       const lngStr = fmt(lng);
 
       return `
-        <div class="popup-links" style="font-family: Meiryo, sans-serif; font-size: 14px; line-height: 1.4;">
+        <div class="popup-links" style="font-family: Meiryo, sans-serif; font-size:14px; line-height:1.4;">
           <b>クリック地点</b><br>
           lat: ${latStr}<br>
           lng: ${lngStr}<br><br>
-          <a href="${googleMapsUrl(latStr, lngStr)}" target="_blank" rel="noopener noreferrer">Googleマップで開く</a><br>
-          <a href="${streetViewUrl(latStr, lngStr)}" target="_blank" rel="noopener noreferrer">ストリートビューで開く</a>
+          <a href="${googleMapsUrl(latStr, lngStr)}" target="_blank" rel="noopener noreferrer">
+            Googleマップで開く
+          </a><br>
+          <a href="${streetViewUrl(latStr, lngStr)}" target="_blank" rel="noopener noreferrer">
+            ストリートビューで開く
+          </a>
         </div>
       `;
     }
 
-    /** ====== 初期表示（URLがあれば優先） ====== */
+    /** ====== 初期表示 ====== */
     const initialLat = getNumberParam("lat", DEFAULT_VIEW.lat);
     const initialLng = getNumberParam("lng", DEFAULT_VIEW.lng);
     const initialZ   = getNumberParam("z",   DEFAULT_VIEW.z);
 
-    // 初期表示
-    const map = L.map('map').setView([initialLat, initialLng], initialZ);
+    const map = L.map("map").setView([initialLat, initialLng], initialZ);
 
-    // OpenStreetMap タイル
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
       maxZoom: 19
     }).addTo(map);
 
-    // 起動直後にURLを正規化（共有時にズレない）
-    setUrlFromView(Number(initialLat.toFixed(6)), Number(initialLng.toFixed(6)), initialZ);
-
-    /** ====== 地図操作でURL更新（moveend/zoomend） ====== */
+    /** ====== 地図操作でURL更新（共有用） ====== */
     const syncUrlDebounced = debounce(() => {
       const c = map.getCenter();
       const z = map.getZoom();
-      const lat = Number(c.lat.toFixed(6));
-      const lng = Number(c.lng.toFixed(6));
-      setUrlFromView(lat, lng, z);
+      setUrlFromView(
+        Number(c.lat.toFixed(6)),
+        Number(c.lng.toFixed(6)),
+        z
+      );
     }, 250);
 
     map.on("moveend", syncUrlDebounced);
     map.on("zoomend", syncUrlDebounced);
 
     /** ====== 地図クリックでピン追加 ====== */
-    map.on('click', (e) => {
+    map.on("click", (e) => {
       const { lat, lng } = e.latlng;
+
+      // クリックしたらズーム18で寄せる（体験重視）
+      map.setView([lat, lng], 18);
 
       const marker = L.marker([lat, lng]).addTo(map);
       marker.bindPopup(popupHtml(lat, lng)).openPopup();
 
-      // ピンを置いた地点をURLにも反映（ズームは維持）
-      const z = map.getZoom();
-      setUrlFromView(Number(lat.toFixed(6)), Number(lng.toFixed(6)), z);
+      setUrlFromView(
+        Number(lat.toFixed(6)),
+        Number(lng.toFixed(6)),
+        18
+      );
 
-      // ピンをクリックした時もURL更新（共有しやすく）
       marker.on("click", () => {
-        const z2 = map.getZoom();
-        setUrlFromView(Number(lat.toFixed(6)), Number(lng.toFixed(6)), z2);
+        setUrlFromView(
+          Number(lat.toFixed(6)),
+          Number(lng.toFixed(6)),
+          map.getZoom()
+        );
       });
     });
   </script>
