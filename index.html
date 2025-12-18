@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>今昔マップ（Phase 0）</title>
+  <title>今昔マップ（Phase 0.5 仮ピン）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <!-- Leaflet CSS -->
@@ -37,13 +37,36 @@
   ></script>
 
   <script>
-    // 初期表示（東京駅あたり）
-    const map = L.map('map').setView([35.681236, 139.767125], 13);
+    /*************************************
+     * Phase 0.5：仮ピン表示
+     *************************************/
+
+    // 初期表示（大崎駅付近）
+    const map = L.map('map').setView([35.6196, 139.7286], 15);
 
     // OpenStreetMap タイル
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
+
+    // ① 最初から表示される仮ピン
+    const firstMarker = L.marker([35.6196, 139.7286]).addTo(map);
+    firstMarker.bindPopup(
+      "<b>仮ピン</b><br>ここに「昔の写真＋説明」が入る"
+    ).openPopup();
+
+    // ② 地図クリックでピンを立てる（練習用）
+    map.on('click', (e) => {
+      const lat = e.latlng.lat;
+      const lng = e.latlng.lng;
+
+      L.marker([lat, lng])
+        .addTo(map)
+        .bindPopup(
+          `クリック地点<br>lat: ${lat.toFixed(6)}<br>lng: ${lng.toFixed(6)}`
+        )
+        .openPopup();
+    });
   </script>
 
 </body>
