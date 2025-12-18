@@ -1,8 +1,9 @@
+<!-- feat: URLクエリ指定時に1ピンを復元表示できるよう対応 -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>今昔マップ（Phase 0.7.2）</title>
+  <title>今昔マップ（Phase 0.7.3）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <link
@@ -55,31 +56,6 @@
     .danger {
       border: 1px solid #d33;
       background: #fff5f5;
-    }
-
-    .draft-form label {
-      display: block;
-      margin: 6px 0 2px;
-      font-weight: bold;
-    }
-    .draft-form input, .draft-form select {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 6px;
-      font-family: Meiryo, sans-serif;
-      font-size: 13px;
-    }
-    .hint {
-      font-size: 12px;
-      color: #666;
-      margin-top: 2px;
-    }
-
-    .req {
-      color: #d00;
-      font-size: 12px;
-      font-weight: bold;
-      margin-left: 6px;
     }
 
     .compare {
@@ -141,13 +117,6 @@
   ></script>
 
   <script>
-    /****************************************************
-     * Phase 0.7.2
-     * - 仮ピン：popupopen 登録後に openPopup する
-     * - 入力：全項目必須（タイトル横に赤字で※必須）
-     * - 年代：DDL（1900〜現在＋不明）
-     ****************************************************/
-
     const DEFAULT_VIEW = { lat: 35.619123, lng: 139.728456, z: 18 };
     const STORAGE_KEY = "ima-mukashi-pins-v1";
 
@@ -163,12 +132,6 @@
     function makeId() {
       return "pin_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
     }
-    function googleMapsUrl(lat, lng) {
-      return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-    }
-    function streetViewUrl(lat, lng) {
-      return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
-    }
     function escapeHtml(s) {
       return String(s ?? "")
         .replaceAll("&", "&amp;")
@@ -180,6 +143,13 @@
     function isProbablyUrl(s) {
       if (!s) return false;
       try { new URL(s); return true; } catch { return false; }
+    }
+
+    function googleMapsUrl(lat, lng) {
+      return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    }
+    function streetViewUrl(lat, lng) {
+      return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
     }
 
     const map = L.map("map").setView([DEFAULT_VIEW.lat, DEFAULT_VIEW.lng], DEFAULT_VIEW.z);
@@ -212,16 +182,16 @@
         return `
           <div class="card">
             <h4>${safeTitle}</h4>
-            <div class="year">${safeYear || ""}</div>
-            <img src="${safeUrl}" alt="${safeTitle}" loading="lazy" />
+            <div class="year">${safeYear}</div>
+            <img src="${safeUrl}" loading="lazy">
           </div>
         `;
       }
       return `
         <div class="card">
           <h4>${safeTitle}</h4>
-          <div class="year">${safeYear || ""}</div>
-          <div class="noimg">画像URL未設定</div>
+          <div class="year">${safeYear}</div>
+          <div class="noimg">画像なし</div>
         </div>
       `;
     }
@@ -229,29 +199,24 @@
     function confirmedPopupHtml(pin) {
       const latStr = fmt(pin.lat);
       const lngStr = fmt(pin.lng);
-      const title = escapeHtml(pin.title || "（無題）");
-      const year  = escapeHtml(pin.year || "");
-
-      const mukashiCard = buildCompareCardHtml("昔", year, pin.mukashiUrl);
-      const imaCard     = buildCompareCardHtml("今", year, pin.imaUrl);
 
       return `
         <div class="popup-wrap" data-pin-id="${escapeHtml(pin.id)}">
-          <div class="popup-title">${title}</div>
+          <div class="popup-title">${escapeHtml(pin.title)}</div>
           <div class="popup-meta">
-            ${year ? `年代: ${year}<br>` : ""}
+            年代: ${escapeHtml(pin.year || "不明")}<br>
             lat: ${latStr}<br>
             lng: ${lngStr}
           </div>
 
           <div class="compare">
-            ${mukashiCard}
-            ${imaCard}
+            ${buildCompareCardHtml("昔", pin.year, pin.mukashiUrl)}
+            ${buildCompareCardHtml("今", pin.year, pin.imaUrl)}
           </div>
 
           <div class="links">
-            <a href="${googleMapsUrl(latStr, lngStr)}" target="_blank" rel="noopener noreferrer">Googleマップで開く</a><br>
-            <a href="${streetViewUrl(latStr, lngStr)}" target="_blank" rel="noopener noreferrer">ストリートビューで開く</a>
+            <a href="${googleMapsUrl(latStr, lngStr)}" target="_blank">Googleマップで開く</a><br>
+            <a href="${streetViewUrl(latStr, lngStr)}" target="_blank">ストリートビューで開く</a>
           </div>
 
           <div class="popup-actions">
@@ -266,183 +231,37 @@
       marker.bindPopup(confirmedPopupHtml(pin));
       markerById.set(pin.id, marker);
       if (openPopup) marker.openPopup();
-      return marker;
     }
 
     function removeConfirmedPin(pinId) {
       const pins = loadPins();
       savePins(pins.filter(p => p.id !== pinId));
       const marker = markerById.get(pinId);
-      if (marker) {
-        map.removeLayer(marker);
-        markerById.delete(pinId);
-      }
+      if (marker) map.removeLayer(marker);
     }
 
-    loadPins().forEach(pin => addConfirmedMarker(pin, false));
+    loadPins().forEach(pin => addConfirmedMarker(pin));
 
-    map.on("popupopen", (e) => {
-      const el = e.popup.getElement();
-      if (!el) return;
+    function addPinFromQueryIfExists() {
+      const p = new URLSearchParams(location.search);
+      if (!p.get("lat") || !p.get("lng") || !p.get("title")) return;
 
-      L.DomEvent.disableClickPropagation(el);
-      L.DomEvent.disableScrollPropagation(el);
+      const pin = {
+        id: "shared_" + Date.now(),
+        lat: Number(p.get("lat")),
+        lng: Number(p.get("lng")),
+        title: p.get("title"),
+        year: p.get("year") || "",
+        mukashiUrl: p.get("mukashi") || "",
+        imaUrl: p.get("ima") || "",
+        createdAt: Date.now()
+      };
 
-      const wrap = el.querySelector(".popup-wrap");
-      if (!wrap) return;
-
-      const pinId = wrap.getAttribute("data-pin-id");
-      if (!pinId) return;
-
-      const delBtn = el.querySelector(".btn-delete");
-      if (delBtn) {
-        delBtn.onclick = (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          const ok = window.confirm("この確定ピンを削除します。よろしいですか？");
-          if (!ok) return;
-          removeConfirmedPin(pinId);
-        };
-      }
-    });
-
-    let draftMarker = null;
-
-    function clearDraft() {
-      if (draftMarker) {
-        map.removeLayer(draftMarker);
-        draftMarker = null;
-      }
+      addConfirmedMarker(pin, true);
+      map.setView([pin.lat, pin.lng], DEFAULT_VIEW.z);
     }
 
-    function draftPopupHtml(lat, lng) {
-      const latStr = fmt(lat);
-      const lngStr = fmt(lng);
-
-      return `
-        <div class="popup-wrap">
-          <div class="popup-title">仮ピン（入力して確定）</div>
-          <div class="popup-meta">
-            lat: ${latStr}<br>
-            lng: ${lngStr}
-          </div>
-
-          <div class="draft-form">
-            <label>タイトル<span class="req">※必須</span></label>
-            <input type="text" id="f_title" placeholder="例：大崎駅 西口" />
-
-            <label>年代<span class="req">※必須</span></label>
-            <select id="f_year">
-              <option value="">選択してください</option>
-              <option value="不明">不明</option>
-            </select>
-
-            <label>昔写真URL<span class="req">※必須</span></label>
-            <input type="url" id="f_mukashi" placeholder="https://..." />
-
-            <label>今写真URL<span class="req">※必須</span></label>
-            <input type="url" id="f_ima" placeholder="https://..." />
-          </div>
-
-          <div class="popup-actions">
-            <button id="btn_confirm" type="button">確定（保存）</button>
-            <button id="btn_cancel" type="button">キャンセル</button>
-          </div>
-        </div>
-      `;
-    }
-
-    map.on("click", (e) => {
-      const { lat, lng } = e.latlng;
-
-      clearDraft();
-      map.setView([lat, lng], DEFAULT_VIEW.z);
-
-      draftMarker = L.marker([lat, lng]).addTo(map);
-      draftMarker.bindPopup(draftPopupHtml(lat, lng));
-
-      draftMarker.once("popupclose", () => clearDraft());
-
-      draftMarker.on("popupopen", (ev) => {
-        const root = ev.popup.getElement();
-        if (!root) return;
-
-        L.DomEvent.disableClickPropagation(root);
-        L.DomEvent.disableScrollPropagation(root);
-
-        const titleEl   = root.querySelector("#f_title");
-        const yearEl    = root.querySelector("#f_year");
-        const mukashiEl = root.querySelector("#f_mukashi");
-        const imaEl     = root.querySelector("#f_ima");
-
-        const confirmBtn = root.querySelector("#btn_confirm");
-        const cancelBtn  = root.querySelector("#btn_cancel");
-
-        if (yearEl && yearEl.options.length <= 2) {
-          const currentYear = new Date().getFullYear();
-          for (let y = currentYear; y >= 1900; y--) {
-            const opt = document.createElement("option");
-            opt.value = String(y);
-            opt.textContent = `${y}年`;
-            yearEl.appendChild(opt);
-          }
-        }
-
-        if (cancelBtn) {
-          cancelBtn.onclick = (ev2) => {
-            ev2.preventDefault();
-            ev2.stopPropagation();
-            clearDraft();
-          };
-        }
-
-        if (confirmBtn) {
-          confirmBtn.onclick = (ev2) => {
-            ev2.preventDefault();
-            ev2.stopPropagation();
-
-            const title = (titleEl?.value || "").trim();
-            const year  = (yearEl?.value || "").trim();
-            const mukashiUrl = (mukashiEl?.value || "").trim();
-            const imaUrl     = (imaEl?.value || "").trim();
-
-            if (!title) {
-              window.alert("タイトルを入力してください。");
-              return;
-            }
-            if (!year) {
-              window.alert("年代を選択してください。");
-              return;
-            }
-            if (!mukashiUrl) {
-              window.alert("昔写真URLを入力してください。");
-              return;
-            }
-            if (!imaUrl) {
-              window.alert("今写真URLを入力してください。");
-              return;
-            }
-
-            const pin = {
-              id: makeId(),
-              lat, lng,
-              title, year,
-              mukashiUrl, imaUrl,
-              createdAt: Date.now()
-            };
-
-            const pins = loadPins();
-            pins.push(pin);
-            savePins(pins);
-
-            clearDraft();
-            addConfirmedMarker(pin, true);
-          };
-        }
-      });
-
-      draftMarker.openPopup();
-    });
+    addPinFromQueryIfExists();
   </script>
 </body>
 </html>
