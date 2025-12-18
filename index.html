@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>今昔マップ（Phase 0.7）</title>
+  <title>今昔マップ（Phase 0.7.1）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- Leaflet CSS -->
@@ -17,7 +17,6 @@
     html, body { height: 100%; margin: 0; }
     #map { height: 100%; width: 100%; }
 
-    /* Leaflet control button */
     .leaflet-bar button {
       background: #fff;
       border: 1px solid #ccc;
@@ -28,7 +27,6 @@
     }
     .leaflet-bar button:hover { background: #f0f0f0; }
 
-    /* Popup base */
     .popup-wrap {
       font-family: Meiryo, sans-serif;
       font-size: 13px;
@@ -60,7 +58,6 @@
       background: #fff5f5;
     }
 
-    /* Draft form */
     .draft-form label {
       display: block;
       margin: 6px 0 2px;
@@ -79,7 +76,6 @@
       margin-top: 2px;
     }
 
-    /* Side-by-side images */
     .compare {
       display: flex;
       gap: 8px;
@@ -141,45 +137,39 @@
 
   <script>
     /****************************************************
-     * ima-mukashi-map（Phase 0.7）
-     *  - 仮ピン → 確定ピン（localStorage保存）
-     *  - 確定ピン：タイトル/年代/写真URL（昔/今）
-     *  - 確定ピンの削除（誤登録対策）
-     *  - 今昔写真の並列表示UI（popup内）
-     *  - 入口URLは /、URLは書き換えない
+     * ima-mukashi-map（Phase 0.7.1）
+     *  - 仮ピンキャンセル時：
+     *     ①ポップアップ（入力内容含む）を消す
+     *     ②仮ピンを消す
+     *  - さらに「×で閉じる / 外クリックで閉じる」でも仮ピンを消す
+     *  - URLは書き換えない / 初期位置ボタンあり
      ****************************************************/
 
-    /** ====== 初期位置（固定） ====== */
+    /** 初期位置（固定） */
     const DEFAULT_VIEW = { lat: 35.619123, lng: 139.728456, z: 18 };
 
-    /** ====== Storage ====== */
+    /** Storage */
     const STORAGE_KEY = "ima-mukashi-pins-v1";
 
     function loadPins() {
-      try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-      } catch {
-        return [];
-      }
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+      catch { return []; }
     }
     function savePins(pins) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(pins));
     }
 
-    /** ====== Utils ====== */
+    /** Utils */
     function fmt(n) { return Number(n).toFixed(6); }
-
     function makeId() {
       return "pin_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
     }
-
     function googleMapsUrl(lat, lng) {
       return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
     }
     function streetViewUrl(lat, lng) {
       return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
     }
-
     function escapeHtml(s) {
       return String(s ?? "")
         .replaceAll("&", "&amp;")
@@ -188,13 +178,12 @@
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#39;");
     }
-
     function isProbablyUrl(s) {
       if (!s) return false;
       try { new URL(s); return true; } catch { return false; }
     }
 
-    /** ====== Map ====== */
+    /** Map */
     const map = L.map("map").setView([DEFAULT_VIEW.lat, DEFAULT_VIEW.lng], DEFAULT_VIEW.z);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -202,7 +191,7 @@
       maxZoom: 19
     }).addTo(map);
 
-    /** ====== 初期位置に戻るボタン ====== */
+    /** 初期位置に戻るボタン */
     const ResetControl = L.Control.extend({
       options: { position: "topleft" },
       onAdd: function () {
@@ -216,13 +205,12 @@
     });
     map.addControl(new ResetControl());
 
-    /** ====== Confirmed markers registry ====== */
+    /** Confirmed markers registry */
     const markerById = new Map(); // id -> marker
 
     function buildCompareCardHtml(title, year, url) {
       const safeTitle = escapeHtml(title);
       const safeYear  = escapeHtml(year);
-
       if (isProbablyUrl(url)) {
         const safeUrl = escapeHtml(url);
         return `
@@ -286,12 +274,8 @@
     }
 
     function removeConfirmedPin(pinId) {
-      // storage remove
       const pins = loadPins();
-      const next = pins.filter(p => p.id !== pinId);
-      savePins(next);
-
-      // map remove
+      savePins(pins.filter(p => p.id !== pinId));
       const marker = markerById.get(pinId);
       if (marker) {
         map.removeLayer(marker);
@@ -299,10 +283,10 @@
       }
     }
 
-    /** ====== Load existing confirmed pins ====== */
+    /** Load confirmed pins */
     loadPins().forEach(pin => addConfirmedMarker(pin, false));
 
-    /** ====== Popup event wiring for confirmed pins (delete button) ====== */
+    /** Wire delete button for confirmed pins */
     map.on("popupopen", (e) => {
       const el = e.popup.getElement();
       if (!el) return;
@@ -325,6 +309,14 @@
 
     /** ====== Draft pin ====== */
     let draftMarker = null;
+
+    function clearDraft() {
+      if (draftMarker) {
+        // 仮ピンを消す = ポップアップ（入力DOM）も一緒に消える
+        map.removeLayer(draftMarker);
+        draftMarker = null;
+      }
+    }
 
     function draftPopupHtml(lat, lng) {
       const latStr = fmt(lat);
@@ -361,25 +353,24 @@
       `;
     }
 
-    function clearDraft() {
-      if (draftMarker) {
-        map.removeLayer(draftMarker);
-        draftMarker = null;
-      }
-    }
-
-    /** ====== Click map -> create draft pin ====== */
+    /** Click map -> create draft */
     map.on("click", (e) => {
       const { lat, lng } = e.latlng;
 
-      // single draft
+      // 既存仮ピンは破棄
       clearDraft();
 
-      // UX: focus clicked area, keep fixed zoom 18
+      // UX: clicked point focus, fixed zoom
       map.setView([lat, lng], DEFAULT_VIEW.z);
 
       draftMarker = L.marker([lat, lng]).addTo(map);
       draftMarker.bindPopup(draftPopupHtml(lat, lng)).openPopup();
+
+      // ★ 重要：ポップアップが閉じられたら（×/外クリック含む）仮ピンも消す
+      draftMarker.once("popupclose", () => {
+        // 「確定」時は draftMarker 自体が消えているので二重でも安全
+        clearDraft();
+      });
 
       draftMarker.on("popupopen", (ev) => {
         const root = ev.popup.getElement();
@@ -394,7 +385,10 @@
         const cancelBtn  = root.querySelector("#btn_cancel");
 
         if (cancelBtn) {
-          cancelBtn.onclick = () => clearDraft();
+          cancelBtn.onclick = () => {
+            // 要件：キャンセル＝入力もポップアップも仮ピンも全部消える
+            clearDraft();
+          };
         }
 
         if (confirmBtn) {
@@ -404,7 +398,6 @@
             const mukashiUrl = (mukashiEl?.value || "").trim();
             const imaUrl     = (imaEl?.value || "").trim();
 
-            // 最低限：タイトルだけ必須（好みでここは緩めてもOK）
             if (!title) {
               window.alert("タイトルを入力してください。");
               return;
@@ -412,12 +405,9 @@
 
             const pin = {
               id: makeId(),
-              lat,
-              lng,
-              title,
-              year,
-              mukashiUrl,
-              imaUrl,
+              lat, lng,
+              title, year,
+              mukashiUrl, imaUrl,
               createdAt: Date.now()
             };
 
