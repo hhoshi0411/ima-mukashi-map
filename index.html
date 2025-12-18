@@ -16,6 +16,7 @@
   <style>
     html, body { height: 100%; margin: 0; }
     #map { height: 100%; width: 100%; }
+    .popup-links a { display: inline-block; margin-top: 6px; }
   </style>
 </head>
 <body>
@@ -30,35 +31,46 @@
 
   <script>
     // 初期表示（大崎あたり）
-    const map = L.map("map").setView([35.619362, 139.727436], 15);
+    const map = L.map('map').setView([35.681236, 139.767125], 13);
 
     // OpenStreetMap タイル
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors"
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    // クリックでピン追加
-    map.on("click", (e) => {
-      const lat = e.latlng.lat;
-      const lng = e.latlng.lng;
+    // 小数点6桁で表示
+    function fmt(n) { return Number(n).toFixed(6); }
 
-      // Google マップ（検索/ピン表示）
-      const gmapUrl = `https://www.google.com/maps?q=${encodeURIComponent(lat + "," + lng)}`;
+    // Google マップ URL（検索）
+    function googleMapsUrl(lat, lng) {
+      return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    }
 
-      // Google ストリートビュー（その座標で開く）
-      const streetUrl = `https://www.google.com/maps?layer=c&cbll=${encodeURIComponent(lat + "," + lng)}`;
+    // Google ストリートビュー URL（その地点のパノラマ）
+    function streetViewUrl(lat, lng) {
+      return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
+    }
 
-      const html = `
-        <div style="min-width:220px;">
+    function popupHtml(lat, lng) {
+      const latStr = fmt(lat);
+      const lngStr = fmt(lng);
+
+      return `
+        <div class="popup-links">
           <b>クリック地点</b><br>
-          lat: ${lat.toFixed(6)}<br>
-          lng: ${lng.toFixed(6)}<br><br>
-          <a href="${gmapUrl}" target="_blank" rel="noopener noreferrer">Googleマップで開く</a><br>
-          <a href="${streetUrl}" target="_blank" rel="noopener noreferrer">ストリートビューで開く</a>
+          lat: ${latStr}<br>
+          lng: ${lngStr}<br><br>
+          <a href="${googleMapsUrl(latStr, lngStr)}" target="_blank" rel="noopener noreferrer">Googleマップで開く</a><br>
+          <a href="${streetViewUrl(latStr, lngStr)}" target="_blank" rel="noopener noreferrer">ストリートビューで開く</a>
         </div>
       `;
+    }
 
-      L.marker([lat, lng]).addTo(map).bindPopup(html).openPopup();
+    // 地図クリックでピン追加
+    map.on('click', (e) => {
+      const { lat, lng } = e.latlng;
+      const marker = L.marker([lat, lng]).addTo(map);
+      marker.bindPopup(popupHtml(lat, lng)).openPopup();
     });
   </script>
 </body>
