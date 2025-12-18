@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>今昔マップ（Phase 0.5 仮ピン）</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>今昔マップ（Phase 0.5）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- Leaflet CSS -->
   <link
@@ -14,19 +14,11 @@
   />
 
   <style>
-    html, body {
-      height: 100%;
-      margin: 0;
-    }
-
-    #map {
-      height: 100%;
-      width: 100%;
-    }
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100%; width: 100%; }
   </style>
 </head>
 <body>
-
   <div id="map"></div>
 
   <!-- Leaflet JS -->
@@ -37,37 +29,37 @@
   ></script>
 
   <script>
-    /*************************************
-     * Phase 0.5：仮ピン表示
-     *************************************/
-
-    // 初期表示（大崎駅付近）
-    const map = L.map('map').setView([35.6196, 139.7286], 15);
+    // 初期表示（大崎あたり）
+    const map = L.map("map").setView([35.619362, 139.727436], 15);
 
     // OpenStreetMap タイル
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
 
-    // ① 最初から表示される仮ピン
-    const firstMarker = L.marker([35.6196, 139.7286]).addTo(map);
-    firstMarker.bindPopup(
-      "<b>仮ピン</b><br>ここに「昔の写真＋説明」が入る"
-    ).openPopup();
-
-    // ② 地図クリックでピンを立てる（練習用）
-    map.on('click', (e) => {
+    // クリックでピン追加
+    map.on("click", (e) => {
       const lat = e.latlng.lat;
       const lng = e.latlng.lng;
 
-      L.marker([lat, lng])
-        .addTo(map)
-        .bindPopup(
-          `クリック地点<br>lat: ${lat.toFixed(6)}<br>lng: ${lng.toFixed(6)}`
-        )
-        .openPopup();
+      // Google マップ（検索/ピン表示）
+      const gmapUrl = `https://www.google.com/maps?q=${encodeURIComponent(lat + "," + lng)}`;
+
+      // Google ストリートビュー（その座標で開く）
+      const streetUrl = `https://www.google.com/maps?layer=c&cbll=${encodeURIComponent(lat + "," + lng)}`;
+
+      const html = `
+        <div style="min-width:220px;">
+          <b>クリック地点</b><br>
+          lat: ${lat.toFixed(6)}<br>
+          lng: ${lng.toFixed(6)}<br><br>
+          <a href="${gmapUrl}" target="_blank" rel="noopener noreferrer">Googleマップで開く</a><br>
+          <a href="${streetUrl}" target="_blank" rel="noopener noreferrer">ストリートビューで開く</a>
+        </div>
+      `;
+
+      L.marker([lat, lng]).addTo(map).bindPopup(html).openPopup();
     });
   </script>
-
 </body>
 </html>
