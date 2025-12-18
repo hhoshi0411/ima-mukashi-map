@@ -17,6 +17,19 @@
     html, body { height: 100%; margin: 0; }
     #map { height: 100%; width: 100%; }
     .popup-links a { display: inline-block; margin-top: 6px; }
+
+    /* 戻るボタン */
+    .reset-btn {
+      background: #fff;
+      border: 1px solid #ccc;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-family: Meiryo, sans-serif;
+      font-size: 13px;
+    }
+    .reset-btn:hover {
+      background: #f0f0f0;
+    }
   </style>
 </head>
 <body>
@@ -32,13 +45,13 @@
   <script>
     /****************************************************
      * ima-mukashi-map（Phase 0.5）
-     * 要件：
-     *  - 入口URLは常に「/」
-     *  - URLは一切書き換えない
+     *  - 入口URLは /
+     *  - URLは書き換えない
      *  - 初期表示：大崎駅・ズーム18
+     *  - 初期位置に戻るボタンを追加
      ****************************************************/
 
-    /** ====== 固定の初期表示（大崎駅・Z=18） ====== */
+    /** 初期位置（固定） */
     const DEFAULT_VIEW = {
       lat: 35.619123,
       lng: 139.728456,
@@ -81,7 +94,7 @@
       `;
     }
 
-    /** ====== 地図生成（URLは一切参照しない） ====== */
+    /** 地図生成 */
     const map = L.map("map").setView(
       [DEFAULT_VIEW.lat, DEFAULT_VIEW.lng],
       DEFAULT_VIEW.z
@@ -92,12 +105,35 @@
       maxZoom: 19
     }).addTo(map);
 
-    /** ====== 地図クリックでピン追加 ====== */
+    /** ====== 初期位置に戻るボタン ====== */
+    const ResetControl = L.Control.extend({
+      options: { position: "topleft" },
+      onAdd: function () {
+        const container = L.DomUtil.create("div", "leaflet-bar");
+        const btn = L.DomUtil.create("button", "reset-btn", container);
+        btn.textContent = "初期位置に戻る";
+
+        // 地図操作を邪魔しない
+        L.DomEvent.disableClickPropagation(container);
+
+        btn.onclick = function () {
+          map.setView(
+            [DEFAULT_VIEW.lat, DEFAULT_VIEW.lng],
+            DEFAULT_VIEW.z
+          );
+        };
+
+        return container;
+      }
+    });
+
+    map.addControl(new ResetControl());
+
+    /** 地図クリックでピン追加 */
     map.on("click", (e) => {
       const { lat, lng } = e.latlng;
 
-      // 体験重視：クリックした地点に Z=18 で寄せる
-      map.setView([lat, lng], 18);
+      map.setView([lat, lng], DEFAULT_VIEW.z);
 
       const marker = L.marker([lat, lng]).addTo(map);
       marker.bindPopup(popupHtml(lat, lng)).openPopup();
