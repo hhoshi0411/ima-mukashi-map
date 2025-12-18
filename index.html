@@ -2,10 +2,9 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>今昔マップ（Phase 0.7.1）</title>
+  <title>今昔マップ（Phase 0.7.2）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!-- Leaflet CSS -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -49,7 +48,7 @@
       margin: 8px 0;
     }
     .popup-actions button {
-      padding: 4px 8px;
+      padding: 4px 10px;
       font-size: 12px;
       cursor: pointer;
     }
@@ -128,7 +127,6 @@
 <body>
   <div id="map"></div>
 
-  <!-- Leaflet JS -->
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
@@ -137,18 +135,12 @@
 
   <script>
     /****************************************************
-     * ima-mukashi-map（Phase 0.7.1）
-     *  - 仮ピンキャンセル時：
-     *     ①ポップアップ（入力内容含む）を消す
-     *     ②仮ピンを消す
-     *  - さらに「×で閉じる / 外クリックで閉じる」でも仮ピンを消す
-     *  - URLは書き換えない / 初期位置ボタンあり
+     * Phase 0.7.2
+     * - ポップアップ内クリックが地図に伝播してしまい
+     *   ボタンが効かない問題を修正（stopPropagation）
      ****************************************************/
 
-    /** 初期位置（固定） */
     const DEFAULT_VIEW = { lat: 35.619123, lng: 139.728456, z: 18 };
-
-    /** Storage */
     const STORAGE_KEY = "ima-mukashi-pins-v1";
 
     function loadPins() {
@@ -159,7 +151,6 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(pins));
     }
 
-    /** Utils */
     function fmt(n) { return Number(n).toFixed(6); }
     function makeId() {
       return "pin_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
@@ -183,7 +174,6 @@
       try { new URL(s); return true; } catch { return false; }
     }
 
-    /** Map */
     const map = L.map("map").setView([DEFAULT_VIEW.lat, DEFAULT_VIEW.lng], DEFAULT_VIEW.z);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -191,7 +181,6 @@
       maxZoom: 19
     }).addTo(map);
 
-    /** 初期位置に戻るボタン */
     const ResetControl = L.Control.extend({
       options: { position: "topleft" },
       onAdd: function () {
@@ -205,8 +194,7 @@
     });
     map.addControl(new ResetControl());
 
-    /** Confirmed markers registry */
-    const markerById = new Map(); // id -> marker
+    const markerById = new Map();
 
     function buildCompareCardHtml(title, year, url) {
       const safeTitle = escapeHtml(title);
@@ -283,13 +271,15 @@
       }
     }
 
-    /** Load confirmed pins */
     loadPins().forEach(pin => addConfirmedMarker(pin, false));
 
-    /** Wire delete button for confirmed pins */
     map.on("popupopen", (e) => {
       const el = e.popup.getElement();
       if (!el) return;
+
+      // ★ここが今回の肝：ポップアップ内クリックが地図に伝播しないようにする
+      L.DomEvent.disableClickPropagation(el);
+      L.DomEvent.disableScrollPropagation(el);
 
       const wrap = el.querySelector(".popup-wrap");
       if (!wrap) return;
@@ -299,7 +289,9 @@
 
       const delBtn = el.querySelector(".btn-delete");
       if (delBtn) {
-        delBtn.onclick = () => {
+        delBtn.onclick = (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
           const ok = window.confirm("この確定ピンを削除します。よろしいですか？");
           if (!ok) return;
           removeConfirmedPin(pinId);
@@ -307,12 +299,10 @@
       }
     });
 
-    /** ====== Draft pin ====== */
     let draftMarker = null;
 
     function clearDraft() {
       if (draftMarker) {
-        // 仮ピンを消す = ポップアップ（入力DOM）も一緒に消える
         map.removeLayer(draftMarker);
         draftMarker = null;
       }
@@ -353,28 +343,24 @@
       `;
     }
 
-    /** Click map -> create draft */
     map.on("click", (e) => {
       const { lat, lng } = e.latlng;
 
-      // 既存仮ピンは破棄
       clearDraft();
-
-      // UX: clicked point focus, fixed zoom
       map.setView([lat, lng], DEFAULT_VIEW.z);
 
       draftMarker = L.marker([lat, lng]).addTo(map);
       draftMarker.bindPopup(draftPopupHtml(lat, lng)).openPopup();
 
-      // ★ 重要：ポップアップが閉じられたら（×/外クリック含む）仮ピンも消す
-      draftMarker.once("popupclose", () => {
-        // 「確定」時は draftMarker 自体が消えているので二重でも安全
-        clearDraft();
-      });
+      draftMarker.once("popupclose", () => clearDraft());
 
       draftMarker.on("popupopen", (ev) => {
         const root = ev.popup.getElement();
         if (!root) return;
+
+        // ★ここが今回の肝：仮ピンのポップアップでも伝播停止
+        L.DomEvent.disableClickPropagation(root);
+        L.DomEvent.disableScrollPropagation(root);
 
         const titleEl   = root.querySelector("#f_title");
         const yearEl    = root.querySelector("#f_year");
@@ -385,14 +371,18 @@
         const cancelBtn  = root.querySelector("#btn_cancel");
 
         if (cancelBtn) {
-          cancelBtn.onclick = () => {
-            // 要件：キャンセル＝入力もポップアップも仮ピンも全部消える
+          cancelBtn.onclick = (ev2) => {
+            ev2.preventDefault();
+            ev2.stopPropagation();
             clearDraft();
           };
         }
 
         if (confirmBtn) {
-          confirmBtn.onclick = () => {
+          confirmBtn.onclick = (ev2) => {
+            ev2.preventDefault();
+            ev2.stopPropagation();
+
             const title = (titleEl?.value || "").trim();
             const year  = (yearEl?.value || "").trim();
             const mukashiUrl = (mukashiEl?.value || "").trim();
@@ -415,7 +405,6 @@
             pins.push(pin);
             savePins(pins);
 
-            // Draft -> Confirmed
             clearDraft();
             addConfirmedMarker(pin, true);
           };
