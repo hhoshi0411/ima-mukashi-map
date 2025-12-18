@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>今昔マップ（Phase 0.5）</title>
+  <title>今昔マップ（Phase 0.7）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- Leaflet CSS -->
@@ -16,10 +16,9 @@
   <style>
     html, body { height: 100%; margin: 0; }
     #map { height: 100%; width: 100%; }
-    .popup-links a { display: inline-block; margin-top: 6px; }
 
-    /* 戻るボタン */
-    .reset-btn {
+    /* Leaflet control button */
+    .leaflet-bar button {
       background: #fff;
       border: 1px solid #ccc;
       padding: 6px 10px;
@@ -27,11 +26,109 @@
       font-family: Meiryo, sans-serif;
       font-size: 13px;
     }
-    .reset-btn:hover {
-      background: #f0f0f0;
+    .leaflet-bar button:hover { background: #f0f0f0; }
+
+    /* Popup base */
+    .popup-wrap {
+      font-family: Meiryo, sans-serif;
+      font-size: 13px;
+      line-height: 1.4;
+      min-width: 260px;
+    }
+    .popup-title {
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 6px;
+    }
+    .popup-meta {
+      color: #333;
+      margin-bottom: 8px;
+    }
+    .popup-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 8px 0;
+    }
+    .popup-actions button {
+      padding: 4px 8px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .danger {
+      border: 1px solid #d33;
+      background: #fff5f5;
+    }
+
+    /* Draft form */
+    .draft-form label {
+      display: block;
+      margin: 6px 0 2px;
+      font-weight: bold;
+    }
+    .draft-form input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px;
+      font-family: Meiryo, sans-serif;
+      font-size: 13px;
+    }
+    .hint {
+      font-size: 12px;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    /* Side-by-side images */
+    .compare {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 6px;
+      background: #fff;
+      flex: 1 1 140px;
+      min-width: 140px;
+      max-width: 240px;
+    }
+    .card h4 {
+      margin: 0 0 4px 0;
+      font-size: 12px;
+    }
+    .card .year {
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+    .card img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 4px;
+      border: 1px solid #eee;
+    }
+    .noimg {
+      font-size: 12px;
+      color: #888;
+      padding: 14px 6px;
+      border: 1px dashed #ccc;
+      border-radius: 4px;
+      text-align: center;
+      background: #fafafa;
+    }
+
+    .links a {
+      display: inline-block;
+      margin-top: 6px;
     }
   </style>
 </head>
+
 <body>
   <div id="map"></div>
 
@@ -44,61 +141,61 @@
 
   <script>
     /****************************************************
-     * ima-mukashi-map（Phase 0.5）
-     *  - 入口URLは /
-     *  - URLは書き換えない
-     *  - 初期表示：大崎駅・ズーム18
-     *  - 初期位置に戻るボタンを追加
+     * ima-mukashi-map（Phase 0.7）
+     *  - 仮ピン → 確定ピン（localStorage保存）
+     *  - 確定ピン：タイトル/年代/写真URL（昔/今）
+     *  - 確定ピンの削除（誤登録対策）
+     *  - 今昔写真の並列表示UI（popup内）
+     *  - 入口URLは /、URLは書き換えない
      ****************************************************/
 
-    /** 初期位置（固定） */
-    const DEFAULT_VIEW = {
-      lat: 35.619123,
-      lng: 139.728456,
-      z: 18
-    };
+    /** ====== 初期位置（固定） ====== */
+    const DEFAULT_VIEW = { lat: 35.619123, lng: 139.728456, z: 18 };
 
-    /** 小数点6桁 */
-    function fmt(n) {
-      return Number(n).toFixed(6);
+    /** ====== Storage ====== */
+    const STORAGE_KEY = "ima-mukashi-pins-v1";
+
+    function loadPins() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      } catch {
+        return [];
+      }
+    }
+    function savePins(pins) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(pins));
     }
 
-    /** Google マップ URL */
+    /** ====== Utils ====== */
+    function fmt(n) { return Number(n).toFixed(6); }
+
+    function makeId() {
+      return "pin_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+    }
+
     function googleMapsUrl(lat, lng) {
       return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
     }
-
-    /** Google ストリートビュー URL */
     function streetViewUrl(lat, lng) {
       return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
     }
 
-    function popupHtml(lat, lng) {
-      const latStr = fmt(lat);
-      const lngStr = fmt(lng);
-
-      return `
-        <div class="popup-links" style="font-family: Meiryo, sans-serif; font-size:14px; line-height:1.4;">
-          <b>クリック地点</b><br>
-          lat: ${latStr}<br>
-          lng: ${lngStr}<br><br>
-          <a href="${googleMapsUrl(latStr, lngStr)}"
-             target="_blank" rel="noopener noreferrer">
-            Googleマップで開く
-          </a><br>
-          <a href="${streetViewUrl(latStr, lngStr)}"
-             target="_blank" rel="noopener noreferrer">
-            ストリートビューで開く
-          </a>
-        </div>
-      `;
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
     }
 
-    /** 地図生成 */
-    const map = L.map("map").setView(
-      [DEFAULT_VIEW.lat, DEFAULT_VIEW.lng],
-      DEFAULT_VIEW.z
-    );
+    function isProbablyUrl(s) {
+      if (!s) return false;
+      try { new URL(s); return true; } catch { return false; }
+    }
+
+    /** ====== Map ====== */
+    const map = L.map("map").setView([DEFAULT_VIEW.lat, DEFAULT_VIEW.lng], DEFAULT_VIEW.z);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "&copy; OpenStreetMap contributors",
@@ -110,33 +207,230 @@
       options: { position: "topleft" },
       onAdd: function () {
         const container = L.DomUtil.create("div", "leaflet-bar");
-        const btn = L.DomUtil.create("button", "reset-btn", container);
+        const btn = L.DomUtil.create("button", "", container);
         btn.textContent = "初期位置に戻る";
-
-        // 地図操作を邪魔しない
         L.DomEvent.disableClickPropagation(container);
-
-        btn.onclick = function () {
-          map.setView(
-            [DEFAULT_VIEW.lat, DEFAULT_VIEW.lng],
-            DEFAULT_VIEW.z
-          );
-        };
-
+        btn.onclick = () => map.setView([DEFAULT_VIEW.lat, DEFAULT_VIEW.lng], DEFAULT_VIEW.z);
         return container;
       }
     });
-
     map.addControl(new ResetControl());
 
-    /** 地図クリックでピン追加 */
+    /** ====== Confirmed markers registry ====== */
+    const markerById = new Map(); // id -> marker
+
+    function buildCompareCardHtml(title, year, url) {
+      const safeTitle = escapeHtml(title);
+      const safeYear  = escapeHtml(year);
+
+      if (isProbablyUrl(url)) {
+        const safeUrl = escapeHtml(url);
+        return `
+          <div class="card">
+            <h4>${safeTitle}</h4>
+            <div class="year">${safeYear || ""}</div>
+            <img src="${safeUrl}" alt="${safeTitle}" loading="lazy" />
+          </div>
+        `;
+      }
+      return `
+        <div class="card">
+          <h4>${safeTitle}</h4>
+          <div class="year">${safeYear || ""}</div>
+          <div class="noimg">画像URL未設定</div>
+        </div>
+      `;
+    }
+
+    function confirmedPopupHtml(pin) {
+      const latStr = fmt(pin.lat);
+      const lngStr = fmt(pin.lng);
+      const title = escapeHtml(pin.title || "（無題）");
+      const year  = escapeHtml(pin.year || "");
+
+      const mukashiCard = buildCompareCardHtml("昔", year, pin.mukashiUrl);
+      const imaCard     = buildCompareCardHtml("今", year, pin.imaUrl);
+
+      return `
+        <div class="popup-wrap" data-pin-id="${escapeHtml(pin.id)}">
+          <div class="popup-title">${title}</div>
+          <div class="popup-meta">
+            ${year ? `年代: ${year}<br>` : ""}
+            lat: ${latStr}<br>
+            lng: ${lngStr}
+          </div>
+
+          <div class="compare">
+            ${mukashiCard}
+            ${imaCard}
+          </div>
+
+          <div class="links">
+            <a href="${googleMapsUrl(latStr, lngStr)}" target="_blank" rel="noopener noreferrer">Googleマップで開く</a><br>
+            <a href="${streetViewUrl(latStr, lngStr)}" target="_blank" rel="noopener noreferrer">ストリートビューで開く</a>
+          </div>
+
+          <div class="popup-actions">
+            <button class="btn-delete danger" type="button">このピンを削除</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function addConfirmedMarker(pin, openPopup = false) {
+      const marker = L.marker([pin.lat, pin.lng]).addTo(map);
+      marker.bindPopup(confirmedPopupHtml(pin));
+      markerById.set(pin.id, marker);
+      if (openPopup) marker.openPopup();
+      return marker;
+    }
+
+    function removeConfirmedPin(pinId) {
+      // storage remove
+      const pins = loadPins();
+      const next = pins.filter(p => p.id !== pinId);
+      savePins(next);
+
+      // map remove
+      const marker = markerById.get(pinId);
+      if (marker) {
+        map.removeLayer(marker);
+        markerById.delete(pinId);
+      }
+    }
+
+    /** ====== Load existing confirmed pins ====== */
+    loadPins().forEach(pin => addConfirmedMarker(pin, false));
+
+    /** ====== Popup event wiring for confirmed pins (delete button) ====== */
+    map.on("popupopen", (e) => {
+      const el = e.popup.getElement();
+      if (!el) return;
+
+      const wrap = el.querySelector(".popup-wrap");
+      if (!wrap) return;
+
+      const pinId = wrap.getAttribute("data-pin-id");
+      if (!pinId) return;
+
+      const delBtn = el.querySelector(".btn-delete");
+      if (delBtn) {
+        delBtn.onclick = () => {
+          const ok = window.confirm("この確定ピンを削除します。よろしいですか？");
+          if (!ok) return;
+          removeConfirmedPin(pinId);
+        };
+      }
+    });
+
+    /** ====== Draft pin ====== */
+    let draftMarker = null;
+
+    function draftPopupHtml(lat, lng) {
+      const latStr = fmt(lat);
+      const lngStr = fmt(lng);
+
+      return `
+        <div class="popup-wrap">
+          <div class="popup-title">仮ピン（入力して確定）</div>
+          <div class="popup-meta">
+            lat: ${latStr}<br>
+            lng: ${lngStr}
+          </div>
+
+          <div class="draft-form">
+            <label>タイトル</label>
+            <input type="text" id="f_title" placeholder="例：大崎駅 西口" />
+
+            <label>年代（テキスト）</label>
+            <input type="text" id="f_year" placeholder="例：昭和40年代ごろ / 1998年 / 2010年代" />
+            <div class="hint">※自由入力でOK</div>
+
+            <label>昔写真URL</label>
+            <input type="url" id="f_mukashi" placeholder="https://..." />
+
+            <label>今写真URL</label>
+            <input type="url" id="f_ima" placeholder="https://..." />
+          </div>
+
+          <div class="popup-actions">
+            <button id="btn_confirm" type="button">確定（保存）</button>
+            <button id="btn_cancel" type="button">キャンセル</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function clearDraft() {
+      if (draftMarker) {
+        map.removeLayer(draftMarker);
+        draftMarker = null;
+      }
+    }
+
+    /** ====== Click map -> create draft pin ====== */
     map.on("click", (e) => {
       const { lat, lng } = e.latlng;
 
+      // single draft
+      clearDraft();
+
+      // UX: focus clicked area, keep fixed zoom 18
       map.setView([lat, lng], DEFAULT_VIEW.z);
 
-      const marker = L.marker([lat, lng]).addTo(map);
-      marker.bindPopup(popupHtml(lat, lng)).openPopup();
+      draftMarker = L.marker([lat, lng]).addTo(map);
+      draftMarker.bindPopup(draftPopupHtml(lat, lng)).openPopup();
+
+      draftMarker.on("popupopen", (ev) => {
+        const root = ev.popup.getElement();
+        if (!root) return;
+
+        const titleEl   = root.querySelector("#f_title");
+        const yearEl    = root.querySelector("#f_year");
+        const mukashiEl = root.querySelector("#f_mukashi");
+        const imaEl     = root.querySelector("#f_ima");
+
+        const confirmBtn = root.querySelector("#btn_confirm");
+        const cancelBtn  = root.querySelector("#btn_cancel");
+
+        if (cancelBtn) {
+          cancelBtn.onclick = () => clearDraft();
+        }
+
+        if (confirmBtn) {
+          confirmBtn.onclick = () => {
+            const title = (titleEl?.value || "").trim();
+            const year  = (yearEl?.value || "").trim();
+            const mukashiUrl = (mukashiEl?.value || "").trim();
+            const imaUrl     = (imaEl?.value || "").trim();
+
+            // 最低限：タイトルだけ必須（好みでここは緩めてもOK）
+            if (!title) {
+              window.alert("タイトルを入力してください。");
+              return;
+            }
+
+            const pin = {
+              id: makeId(),
+              lat,
+              lng,
+              title,
+              year,
+              mukashiUrl,
+              imaUrl,
+              createdAt: Date.now()
+            };
+
+            const pins = loadPins();
+            pins.push(pin);
+            savePins(pins);
+
+            // Draft -> Confirmed
+            clearDraft();
+            addConfirmedMarker(pin, true);
+          };
+        }
+      });
     });
   </script>
 </body>
