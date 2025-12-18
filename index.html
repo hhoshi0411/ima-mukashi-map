@@ -62,7 +62,7 @@
       margin: 6px 0 2px;
       font-weight: bold;
     }
-    .draft-form input {
+    .draft-form input, .draft-form select {
       width: 100%;
       box-sizing: border-box;
       padding: 6px;
@@ -73,6 +73,13 @@
       font-size: 12px;
       color: #666;
       margin-top: 2px;
+    }
+
+    .req {
+      color: #d00;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 6px;
     }
 
     .compare {
@@ -136,7 +143,9 @@
   <script>
     /****************************************************
      * Phase 0.7.2
-     * - 仮ピン popupopen 登録後に openPopup するよう修正
+     * - 仮ピン：popupopen 登録後に openPopup する
+     * - 入力：全項目必須（タイトル横に赤字で※必須）
+     * - 年代：DDL（1900〜現在＋不明）
      ****************************************************/
 
     const DEFAULT_VIEW = { lat: 35.619123, lng: 139.728456, z: 18 };
@@ -223,6 +232,9 @@
       const title = escapeHtml(pin.title || "（無題）");
       const year  = escapeHtml(pin.year || "");
 
+      const mukashiCard = buildCompareCardHtml("昔", year, pin.mukashiUrl);
+      const imaCard     = buildCompareCardHtml("今", year, pin.imaUrl);
+
       return `
         <div class="popup-wrap" data-pin-id="${escapeHtml(pin.id)}">
           <div class="popup-title">${title}</div>
@@ -233,8 +245,8 @@
           </div>
 
           <div class="compare">
-            ${buildCompareCardHtml("昔", year, pin.mukashiUrl)}
-            ${buildCompareCardHtml("今", year, pin.imaUrl)}
+            ${mukashiCard}
+            ${imaCard}
           </div>
 
           <div class="links">
@@ -254,6 +266,7 @@
       marker.bindPopup(confirmedPopupHtml(pin));
       markerById.set(pin.id, marker);
       if (openPopup) marker.openPopup();
+      return marker;
     }
 
     function removeConfirmedPin(pinId) {
@@ -266,7 +279,7 @@
       }
     }
 
-    loadPins().forEach(pin => addConfirmedMarker(pin));
+    loadPins().forEach(pin => addConfirmedMarker(pin, false));
 
     map.on("popupopen", (e) => {
       const el = e.popup.getElement();
@@ -279,14 +292,16 @@
       if (!wrap) return;
 
       const pinId = wrap.getAttribute("data-pin-id");
+      if (!pinId) return;
+
       const delBtn = el.querySelector(".btn-delete");
       if (delBtn) {
         delBtn.onclick = (ev) => {
           ev.preventDefault();
           ev.stopPropagation();
-          if (window.confirm("この確定ピンを削除します。よろしいですか？")) {
-            removeConfirmedPin(pinId);
-          }
+          const ok = window.confirm("この確定ピンを削除します。よろしいですか？");
+          if (!ok) return;
+          removeConfirmedPin(pinId);
         };
       }
     });
@@ -301,26 +316,32 @@
     }
 
     function draftPopupHtml(lat, lng) {
+      const latStr = fmt(lat);
+      const lngStr = fmt(lng);
+
       return `
         <div class="popup-wrap">
           <div class="popup-title">仮ピン（入力して確定）</div>
           <div class="popup-meta">
-            lat: ${fmt(lat)}<br>
-            lng: ${fmt(lng)}
+            lat: ${latStr}<br>
+            lng: ${lngStr}
           </div>
 
           <div class="draft-form">
-            <label>タイトル</label>
-            <input type="text" id="f_title" />
+            <label>タイトル<span class="req">※必須</span></label>
+            <input type="text" id="f_title" placeholder="例：大崎駅 西口" />
 
-            <label>年代</label>
-            <input type="text" id="f_year" />
+            <label>年代<span class="req">※必須</span></label>
+            <select id="f_year">
+              <option value="">選択してください</option>
+              <option value="不明">不明</option>
+            </select>
 
-            <label>昔写真URL</label>
-            <input type="url" id="f_mukashi" />
+            <label>昔写真URL<span class="req">※必須</span></label>
+            <input type="url" id="f_mukashi" placeholder="https://..." />
 
-            <label>今写真URL</label>
-            <input type="url" id="f_ima" />
+            <label>今写真URL<span class="req">※必須</span></label>
+            <input type="url" id="f_ima" placeholder="https://..." />
           </div>
 
           <div class="popup-actions">
@@ -340,7 +361,7 @@
       draftMarker = L.marker([lat, lng]).addTo(map);
       draftMarker.bindPopup(draftPopupHtml(lat, lng));
 
-      draftMarker.once("popupclose", clearDraft);
+      draftMarker.once("popupclose", () => clearDraft());
 
       draftMarker.on("popupopen", (ev) => {
         const root = ev.popup.getElement();
@@ -354,42 +375,72 @@
         const mukashiEl = root.querySelector("#f_mukashi");
         const imaEl     = root.querySelector("#f_ima");
 
-        root.querySelector("#btn_cancel").onclick = (ev2) => {
-          ev2.preventDefault();
-          ev2.stopPropagation();
-          clearDraft();
-        };
+        const confirmBtn = root.querySelector("#btn_confirm");
+        const cancelBtn  = root.querySelector("#btn_cancel");
 
-        root.querySelector("#btn_confirm").onclick = (ev2) => {
-          ev2.preventDefault();
-          ev2.stopPropagation();
-
-          const title = titleEl.value.trim();
-          if (!title) {
-            alert("タイトルを入力してください。");
-            return;
+        if (yearEl && yearEl.options.length <= 2) {
+          const currentYear = new Date().getFullYear();
+          for (let y = currentYear; y >= 1900; y--) {
+            const opt = document.createElement("option");
+            opt.value = String(y);
+            opt.textContent = `${y}年`;
+            yearEl.appendChild(opt);
           }
+        }
 
-          const pin = {
-            id: makeId(),
-            lat, lng,
-            title,
-            year: yearEl.value.trim(),
-            mukashiUrl: mukashiEl.value.trim(),
-            imaUrl: imaEl.value.trim(),
-            createdAt: Date.now()
+        if (cancelBtn) {
+          cancelBtn.onclick = (ev2) => {
+            ev2.preventDefault();
+            ev2.stopPropagation();
+            clearDraft();
           };
+        }
 
-          const pins = loadPins();
-          pins.push(pin);
-          savePins(pins);
+        if (confirmBtn) {
+          confirmBtn.onclick = (ev2) => {
+            ev2.preventDefault();
+            ev2.stopPropagation();
 
-          clearDraft();
-          addConfirmedMarker(pin, true);
-        };
+            const title = (titleEl?.value || "").trim();
+            const year  = (yearEl?.value || "").trim();
+            const mukashiUrl = (mukashiEl?.value || "").trim();
+            const imaUrl     = (imaEl?.value || "").trim();
+
+            if (!title) {
+              window.alert("タイトルを入力してください。");
+              return;
+            }
+            if (!year) {
+              window.alert("年代を選択してください。");
+              return;
+            }
+            if (!mukashiUrl) {
+              window.alert("昔写真URLを入力してください。");
+              return;
+            }
+            if (!imaUrl) {
+              window.alert("今写真URLを入力してください。");
+              return;
+            }
+
+            const pin = {
+              id: makeId(),
+              lat, lng,
+              title, year,
+              mukashiUrl, imaUrl,
+              createdAt: Date.now()
+            };
+
+            const pins = loadPins();
+            pins.push(pin);
+            savePins(pins);
+
+            clearDraft();
+            addConfirmedMarker(pin, true);
+          };
+        }
       });
 
-      // ★最後に開く（重要）
       draftMarker.openPopup();
     });
   </script>
