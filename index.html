@@ -136,8 +136,7 @@
   <script>
     /****************************************************
      * Phase 0.7.2
-     * - ポップアップ内クリックが地図に伝播してしまい
-     *   ボタンが効かない問題を修正（stopPropagation）
+     * - 仮ピン popupopen 登録後に openPopup するよう修正
      ****************************************************/
 
     const DEFAULT_VIEW = { lat: 35.619123, lng: 139.728456, z: 18 };
@@ -224,9 +223,6 @@
       const title = escapeHtml(pin.title || "（無題）");
       const year  = escapeHtml(pin.year || "");
 
-      const mukashiCard = buildCompareCardHtml("昔", year, pin.mukashiUrl);
-      const imaCard     = buildCompareCardHtml("今", year, pin.imaUrl);
-
       return `
         <div class="popup-wrap" data-pin-id="${escapeHtml(pin.id)}">
           <div class="popup-title">${title}</div>
@@ -237,8 +233,8 @@
           </div>
 
           <div class="compare">
-            ${mukashiCard}
-            ${imaCard}
+            ${buildCompareCardHtml("昔", year, pin.mukashiUrl)}
+            ${buildCompareCardHtml("今", year, pin.imaUrl)}
           </div>
 
           <div class="links">
@@ -258,7 +254,6 @@
       marker.bindPopup(confirmedPopupHtml(pin));
       markerById.set(pin.id, marker);
       if (openPopup) marker.openPopup();
-      return marker;
     }
 
     function removeConfirmedPin(pinId) {
@@ -271,13 +266,12 @@
       }
     }
 
-    loadPins().forEach(pin => addConfirmedMarker(pin, false));
+    loadPins().forEach(pin => addConfirmedMarker(pin));
 
     map.on("popupopen", (e) => {
       const el = e.popup.getElement();
       if (!el) return;
 
-      // ★ここが今回の肝：ポップアップ内クリックが地図に伝播しないようにする
       L.DomEvent.disableClickPropagation(el);
       L.DomEvent.disableScrollPropagation(el);
 
@@ -285,16 +279,14 @@
       if (!wrap) return;
 
       const pinId = wrap.getAttribute("data-pin-id");
-      if (!pinId) return;
-
       const delBtn = el.querySelector(".btn-delete");
       if (delBtn) {
         delBtn.onclick = (ev) => {
           ev.preventDefault();
           ev.stopPropagation();
-          const ok = window.confirm("この確定ピンを削除します。よろしいですか？");
-          if (!ok) return;
-          removeConfirmedPin(pinId);
+          if (window.confirm("この確定ピンを削除します。よろしいですか？")) {
+            removeConfirmedPin(pinId);
+          }
         };
       }
     });
@@ -309,30 +301,26 @@
     }
 
     function draftPopupHtml(lat, lng) {
-      const latStr = fmt(lat);
-      const lngStr = fmt(lng);
-
       return `
         <div class="popup-wrap">
           <div class="popup-title">仮ピン（入力して確定）</div>
           <div class="popup-meta">
-            lat: ${latStr}<br>
-            lng: ${lngStr}
+            lat: ${fmt(lat)}<br>
+            lng: ${fmt(lng)}
           </div>
 
           <div class="draft-form">
             <label>タイトル</label>
-            <input type="text" id="f_title" placeholder="例：大崎駅 西口" />
+            <input type="text" id="f_title" />
 
-            <label>年代（テキスト）</label>
-            <input type="text" id="f_year" placeholder="例：昭和40年代ごろ / 1998年 / 2010年代" />
-            <div class="hint">※自由入力でOK</div>
+            <label>年代</label>
+            <input type="text" id="f_year" />
 
             <label>昔写真URL</label>
-            <input type="url" id="f_mukashi" placeholder="https://..." />
+            <input type="url" id="f_mukashi" />
 
             <label>今写真URL</label>
-            <input type="url" id="f_ima" placeholder="https://..." />
+            <input type="url" id="f_ima" />
           </div>
 
           <div class="popup-actions">
@@ -350,15 +338,14 @@
       map.setView([lat, lng], DEFAULT_VIEW.z);
 
       draftMarker = L.marker([lat, lng]).addTo(map);
-      draftMarker.bindPopup(draftPopupHtml(lat, lng)).openPopup();
+      draftMarker.bindPopup(draftPopupHtml(lat, lng));
 
-      draftMarker.once("popupclose", () => clearDraft());
+      draftMarker.once("popupclose", clearDraft);
 
       draftMarker.on("popupopen", (ev) => {
         const root = ev.popup.getElement();
         if (!root) return;
 
-        // ★ここが今回の肝：仮ピンのポップアップでも伝播停止
         L.DomEvent.disableClickPropagation(root);
         L.DomEvent.disableScrollPropagation(root);
 
@@ -367,49 +354,43 @@
         const mukashiEl = root.querySelector("#f_mukashi");
         const imaEl     = root.querySelector("#f_ima");
 
-        const confirmBtn = root.querySelector("#btn_confirm");
-        const cancelBtn  = root.querySelector("#btn_cancel");
+        root.querySelector("#btn_cancel").onclick = (ev2) => {
+          ev2.preventDefault();
+          ev2.stopPropagation();
+          clearDraft();
+        };
 
-        if (cancelBtn) {
-          cancelBtn.onclick = (ev2) => {
-            ev2.preventDefault();
-            ev2.stopPropagation();
-            clearDraft();
+        root.querySelector("#btn_confirm").onclick = (ev2) => {
+          ev2.preventDefault();
+          ev2.stopPropagation();
+
+          const title = titleEl.value.trim();
+          if (!title) {
+            alert("タイトルを入力してください。");
+            return;
+          }
+
+          const pin = {
+            id: makeId(),
+            lat, lng,
+            title,
+            year: yearEl.value.trim(),
+            mukashiUrl: mukashiEl.value.trim(),
+            imaUrl: imaEl.value.trim(),
+            createdAt: Date.now()
           };
-        }
 
-        if (confirmBtn) {
-          confirmBtn.onclick = (ev2) => {
-            ev2.preventDefault();
-            ev2.stopPropagation();
+          const pins = loadPins();
+          pins.push(pin);
+          savePins(pins);
 
-            const title = (titleEl?.value || "").trim();
-            const year  = (yearEl?.value || "").trim();
-            const mukashiUrl = (mukashiEl?.value || "").trim();
-            const imaUrl     = (imaEl?.value || "").trim();
-
-            if (!title) {
-              window.alert("タイトルを入力してください。");
-              return;
-            }
-
-            const pin = {
-              id: makeId(),
-              lat, lng,
-              title, year,
-              mukashiUrl, imaUrl,
-              createdAt: Date.now()
-            };
-
-            const pins = loadPins();
-            pins.push(pin);
-            savePins(pins);
-
-            clearDraft();
-            addConfirmedMarker(pin, true);
-          };
-        }
+          clearDraft();
+          addConfirmedMarker(pin, true);
+        };
       });
+
+      // ★最後に開く（重要）
+      draftMarker.openPopup();
     });
   </script>
 </body>
